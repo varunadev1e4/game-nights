@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { sb } from './supabase'
 import { useData, F, fmt } from './App'
 
@@ -8,12 +9,13 @@ export function Leaderboard() {
   const [k, setK] = useState('season_points'), [s, setS] = useState('')
   const uid = useData(() => sb.auth.getUser().then(r => ({ data: r.data.user.id })), 'uid')
   const d = useData(() => sb.from('lb_cache').select('*'), 'lb')
+  const pt = useData(() => sb.from('profiles').select('id,title'), 'pt')
   const ss = useData(() => sb.from('seasons').select('*').order('starts_on', { ascending: false }), 'ss')
   const past = useData(() => s ? sb.from('season_board').select('*').eq('season_id', s) : Promise.resolve({ data: [] }), 'p' + s)
-  if (!d || !ss || !past || !uid) return <div className="sk" />
+  if (!d || !ss || !past || !uid || !pt) return <div className="sk" />
   const asc = tabs.find(t => t[0] === k)[2]
   const rows = s ? [...past].sort((a, b) => b.points - a.points).map(x => ({ id: x.member_id, name: x.display_name, sub: 'Season points', val: x.points }))
-    : [...d].sort((a, b) => asc ? (a[k] ?? 99) - (b[k] ?? 99) : b[k] - a[k]).map(x => ({ id: x.member_id, name: x.display_name, av: x.avatar, sub: `${x.wins} wins from ${x.games_played} games`,
+    : [...d].sort((a, b) => asc ? (a[k] ?? 99) - (b[k] ?? 99) : b[k] - a[k]).map(x => ({ id: x.member_id, name: x.display_name, av: x.avatar, sub: [pt.find(p => p.id === x.member_id)?.title, `${x.wins} wins from ${x.games_played} games`].filter(Boolean).join(', '),
       val: k === 'balance' ? Number(x.balance).toLocaleString() : k === 'win_rate' ? x.win_rate + '%' : x[k] ?? '–' }))
   return <>
     <select value={s} onChange={e => setS(e.target.value)}><option value="">Current standings</option>{ss.map(x => <option key={x.id} value={x.id}>{x.name}{x.is_active ? ' (active)' : ''}</option>)}</select>
@@ -36,10 +38,11 @@ export function Members({ open }) {
 }
 
 export function Profile({ id, me }) {
+  const qc = useQueryClient()
   const lb = useData(() => sb.from('lb_cache').select('*'), 'pl')
-  const pr = useData(() => sb.from('profiles').select('id,display_name,avatar'), 'pf')
+  const pr = useData(() => sb.from('profiles').select('id,display_name,avatar,title'), 'pf')
   const r = useData(() => sb.from('results').select('position,created_at,event_games(games(name),events(name,starts_at))').eq('member_id', id), 'pr' + id)
-  const ac = useData(() => sb.from('member_achievements').select('achievements(name,icon,description)').eq('member_id', id), 'pa' + id)
+  const ac = useData(() => sb.from('member_achievements').select('achievement_id,achievements(name,icon,description)').eq('member_id', id), 'pa' + id)
   const h = useData(() => sb.from('h2h').select('*').eq('member_id', id), 'ph' + id)
   if (!lb || !pr || !r || !ac || !h) return <div className="sk" />
   const m = lb.find(x => x.member_id === id), p = pr.find(x => x.id === id), name = x => pr.find(y => y.id === x)?.display_name
@@ -49,13 +52,18 @@ export function Profile({ id, me }) {
   const favs = Object.entries(fav).sort((a, b) => b[1] - a[1]).slice(0, 3)
   const streak = (() => { let n = 0; for (const x of [...r].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))) { if (x.position === 1) n++; else break } return n })()
   return <>
-        <div className="card profile"><span className="av lg">{p.avatar || p.display_name[0]}</span><div className="grow"><h2>{p.display_name}</h2>
+        <div className="card profile"><span className="av lg">{p.avatar || p.display_name[0]}</span><div className="grow"><h2>{p.display_name}</h2>{p.title && <p style={{ margin: '4px 0' }}><span className="pill upcoming">{p.title}</span></p>}
       <span className="muted">{rank ? `Number ${rank} this season` : 'Not ranked yet'}{streak > 1 ? `, ${streak} wins in a row` : ''}</span></div></div>
     <div className="card statrow">{[[Number(m.balance).toLocaleString(), 'Tokens'], [m.games_played, 'Games'], [m.wins, 'Wins'], [m.win_rate + '%', 'Win rate'], [m.events_attended, 'Nights']].map(([v, l]) => <div key={l}><b>{v}</b><span>{l}</span></div>)}</div>
     <p className="muted pad">Favourite games: {favs.map(f => `${f[0]} (${f[1]})`).join(', ') || 'none yet'}</p>
     {id !== me.id && <button className="ontable" onClick={async () => { await sb.rpc('set_rival', { p_id: id }); location.reload() }}>Make rival</button>}
     {id === me.id && <F title="Edit my profile" fields={[['avatar', 'Avatar (one emoji)'], ['display_name', 'Display name']]}
       onSubmit={async v => { const x = await sb.rpc('update_my_profile', { p_name: v.display_name, p_avatar: v.avatar }); if (!x.error) location.reload(); return x }} />}
+    {id === me.id && ac.length > 0 && <div className="card"><label className="fld"><span>Your title, shown on your profile and the leaderboard</span>
+      <select value={ac.find(x => x.achievements.name === p.title)?.achievement_id || ''} onChange={async e => { await sb.rpc('set_title', { p_ach: e.target.value || null }); qc.invalidateQueries() }}>
+        <option value="">No title</option>{ac.map(x => <option key={x.achievement_id} value={x.achievement_id}>{x.achievements.name}</option>)}</select></label></div>}
+    {id === me.id && <F title="Change password" fields={[['pw', 'New password', 'password'], ['pw2', 'Confirm new password', 'password']]}
+      onSubmit={async v => { if (v.pw !== v.pw2) return { error: { message: 'The two passwords do not match.' } }; if (v.pw.length < 8) return { error: { message: 'Use at least 8 characters.' } }; const { error } = await sb.auth.updateUser({ password: v.pw }); return { error: error ? { message: error.message } : null } }} />}
     <div className="card"><h3>Achievements</h3>{ac.length ? ac.map((x, i) => <div className="row" key={i}><b>{x.achievements.name}</b> <span className="muted">{x.achievements.description}</span></div>) : <p className="muted">None yet</p>}</div>
     <div className="card"><h3>Head to head</h3>{h.map(x => <div className="tx row" key={x.opp_id}><span>vs {name(x.opp_id)}</span><b>{x.won}–{x.played - x.won}</b></div>)}{!h.length && <p className="muted">No shared games yet</p>}</div>
     <div className="card"><h3>History</h3>{[...r].sort((a, b) => new Date(b.event_games.events.starts_at) - new Date(a.event_games.events.starts_at)).map((x, i) =>

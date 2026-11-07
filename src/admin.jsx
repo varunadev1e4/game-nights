@@ -25,15 +25,36 @@ function TableCard({ t, M }) {
   </div>
 }
 
+const RS = { in: 'Said yes', maybe: 'Maybe', out: "Can't make it" }
+const RS_ORDER = { in: 0, maybe: 1, none: 2, out: 3 }
+
+function Attendance({ eventId, M, rs, att }) {
+  const qc = useQueryClient(), [ht, setHt] = useState(''), [msg, setMsg] = useState('')
+  const present = new Set(att.map(a => a.member_id)), unpaid = att.filter(a => !a.bonus_paid).length
+  const status = id => rs.find(r => r.member_id === id)?.status
+  const list = [...M].sort((a, b) => RS_ORDER[status(a[0]) ?? 'none'] - RS_ORDER[status(b[0]) ?? 'none'])
+  const done = () => qc.invalidateQueries()
+  const toggle = async id => { if (present.has(id)) await sb.from('attendance').delete().match({ event_id: eventId, member_id: id }); else await sb.from('attendance').insert({ event_id: eventId, member_id: id }); done() }
+  const markYes = async () => { const rows = rs.filter(r => r.status === 'in' && !present.has(r.member_id)).map(r => ({ event_id: eventId, member_id: r.member_id })); if (rows.length) await sb.from('attendance').insert(rows); done() }
+  const pay = async () => { const { error } = await sb.rpc('award_attendance', { p_event: eventId, p_ht: +ht }); setMsg(error ? error.message : `Paid ${ht} HT to ${unpaid} ${unpaid === 1 ? 'member' : 'members'}`); setHt(''); done() }
+  return <div className="card"><div className="tx"><h3>Who's here</h3><span className="muted">{att.length} present, {rs.filter(r => r.status === 'in').length} said yes</span></div>
+    <button onClick={markYes}>Mark everyone who said yes as present</button>
+    {list.map(([id, n]) => <div className="tx row" key={id}><span><b>{n}</b><span className="muted"> {RS[status(id)] || 'No reply'}</span></span>
+      <button className={present.has(id) ? 'on' : ''} onClick={() => toggle(id)}>{present.has(id) ? 'Present' : 'Mark present'}</button></div>)}
+    <div className="row"><label className="fld"><span>Attendance bonus in HT, paid only to members marked present</span><input type="number" value={ht} onChange={e => setHt(e.target.value)} /></label>
+      <button className="pri" disabled={!ht || !unpaid} onClick={pay}>Pay bonus to {unpaid} present {unpaid === 1 ? 'member' : 'members'}</button>{msg && <span className="pos">{msg}</span>}</div></div>
+}
+
 function RunEvent({ ev, G, M, run }) {
   const qc = useQueryClient()
   const first = ev.find(e => e.status === 'live') || [...ev].reverse().find(e => e.status === 'upcoming') || ev[0]
   const [sel, setSel] = useState(first?.id || ''), [ann, setAnn] = useState('')
   const e = ev.find(x => x.id === sel)
   const tabs = useData(() => sel ? sb.from('event_games').select('id,table_label,starts_at,games(name),seats(member_id,profiles(display_name))').eq('event_id', sel).order('starts_at') : Promise.resolve({ data: [] }), 'rt' + sel)
-  const rs = useData(() => sel ? sb.from('rsvps').select('status').eq('event_id', sel) : Promise.resolve({ data: [] }), 'rc' + sel)
+  const rs = useData(() => sel ? sb.from('rsvps').select('member_id,status').eq('event_id', sel) : Promise.resolve({ data: [] }), 'rc' + sel)
+  const att = useData(() => sel ? sb.from('attendance').select('member_id,bonus_paid').eq('event_id', sel) : Promise.resolve({ data: [] }), 'at' + sel)
   if (!ev.length) return <div className="empty">Create an event first (Events tab)</div>
-  if (!tabs || !rs || !e) return <div className="sk" />
+  if (!tabs || !rs || !att || !e) return <div className="sk" />
   const upd = async patch => { await sb.from('events').update(patch).eq('id', sel); qc.invalidateQueries() }
   return <>
     <div className="card"><select value={sel} onChange={x => setSel(x.target.value)}>{ev.map(x => <option key={x.id} value={x.id}>{x.name} · {x.status}</option>)}</select>
@@ -45,7 +66,7 @@ function RunEvent({ ev, G, M, run }) {
     {!tabs.length && <div className="empty">No tables yet. Add one below.</div>}
     <F title="＋ Add table" fields={[['game_id', 'Game', 0, G], ['table_label', 'Table name (e.g. T1)'], ['starts_at', 'Start time (optional)', 'datetime-local']]} onSubmit={run(v => sb.from('event_games').insert({ ...clean(v), event_id: sel }))} />
     <Seating key={sel} E={[]} fixed={sel} />
-    <F title="Attendance bonus" fields={[['ht', 'HT for everyone going', 'number']]} onSubmit={run(v => sb.rpc('award_attendance', { p_event: sel, p_ht: +v.ht }))} />
+    <Attendance eventId={sel} M={M} rs={rs} att={att} />
   </>
 }
 
@@ -58,27 +79,31 @@ function EventsAdmin({ ev, run }) {
       <select style={{ width: 130 }} value={e.status} onChange={x => set(e.id, x.target.value)}>{['upcoming', 'live', 'completed', 'cancelled'].map(s => <option key={s}>{s}</option>)}</select></div></div>)}</>
 }
 
-function MemberRow({ x }) {
+function MemberRow({ x, role, owner, self }) {
   const qc = useQueryClient(), [open, setOpen] = useState(false), [amt, setAmt] = useState(''), [why, setWhy] = useState('')
   const go = async s => {
     const { data } = await sb.auth.getUser()
     await sb.from('transactions').insert({ member_id: x.member_id, amount: s * Math.abs(+amt), reason: why || (s > 0 ? 'Admin bonus' : 'Admin deduction'), created_by: data.user.id })
     setAmt(''); setWhy(''); setOpen(false); qc.invalidateQueries()
   }
-  return <div className="card"><div className="tx tap" onClick={() => setOpen(!open)}><b>{x.avatar || ''} {x.display_name}</b><span>{fmt(x.balance)} ▾</span></div>
+  return <div className="card"><div className="tx tap" onClick={() => setOpen(!open)}><b>{x.avatar || ''} {x.display_name}</b>{role?.is_admin && <span className="pill upcoming">{role.is_owner ? 'Owner' : 'Admin'}</span>}<span>{fmt(x.balance)} ▾</span></div>
     {open && <><input type="number" placeholder="Amount" value={amt} onChange={e => setAmt(e.target.value)} /><input placeholder="Reason (optional)" value={why} onChange={e => setWhy(e.target.value)} />
-      <div className="btns"><button className="pri" disabled={!amt} onClick={() => go(1)}>＋ Add</button><button disabled={!amt} onClick={() => go(-1)}>− Deduct</button></div></>}</div>
+      <div className="btns"><button className="pri" disabled={!amt} onClick={() => go(1)}>＋ Add</button><button disabled={!amt} onClick={() => go(-1)}>− Deduct</button></div>
+      {owner && !self && <><button onClick={async () => { const { error } = await sb.rpc('set_admin', { p_id: x.member_id, p_admin: !role?.is_admin }); if (error) alert(error.message); qc.invalidateQueries() }}>{role?.is_admin ? 'Remove admin rights' : 'Make admin'}</button>
+        <p className="muted">Admins can run events, record results and edit tokens. They see the Admin tab after they refresh.</p></>}</>}</div>
 }
 
 function MembersAdmin({ m, M, run }) {
   const qc = useQueryClient()
   const ac = useData(() => sb.from('achievements').select('id,name'), 'aa')
-  if (!ac) return <div className="sk" />
+  const roles = useData(() => sb.from('profiles').select('id,is_admin,is_owner'), 'ar')
+  const uid = useData(() => sb.auth.getUser().then(r => ({ data: r.data.user.id })), 'uid')
+  if (!ac || !roles || !uid) return <div className="sk" />
   return <>
     <F title="＋ Invite member" fields={[['display_name', 'Name'], ['email', 'Email', 'email'], ['password', 'Temporary password', 'password']]}
       onSubmit={async v => { const { data } = await sb.auth.getSession(); const r = await fetch('/api/invite', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + data.session.access_token }, body: JSON.stringify(v) }); let j = {}; try { j = await r.json() } catch { /* empty body */ } qc.invalidateQueries(); return { error: r.ok ? null : { message: j.error || `Invite failed (${r.status}). Check SUPABASE_SERVICE_ROLE_KEY in .env, then restart the dev server.` } } }} />
     <F title="Award achievement" fields={[['member_id', 'Member', 0, M], ['achievement_id', 'Achievement', 0, ac.map(a => [a.id, a.name])]]} onSubmit={run(v => sb.from('member_achievements').insert(v))} />
-    <p className="muted" style={{ margin: '4px 0 8px' }}>Tap a member to add or deduct tokens</p>{m.map(x => <MemberRow key={x.member_id} x={x} />)}</>
+    <p className="muted" style={{ margin: '4px 0 8px' }}>Tap a member to add or deduct tokens</p>{m.map(x => <MemberRow key={x.member_id} x={x} role={roles.find(r => r.id === x.member_id)} owner={roles.find(r => r.id === uid)?.is_owner} self={x.member_id === uid} />)}</>
 }
 
 function GameRow({ g }) {
