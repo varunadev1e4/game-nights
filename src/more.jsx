@@ -38,6 +38,32 @@ export function Members({ open }) {
       <b className={x.amount >= 0 ? 'pos' : 'neg'}>{x.amount > 0 ? '+' : ''}{x.amount}</b></div>)}</div></>
 }
 
+const AVATARS = [
+  ['People', ['👨', '👩', '🧑', '🧔', '👱‍♂️', '👱‍♀️', '👨‍🦱', '👩‍🦱', '👨‍🦰', '👩‍🦰', '👨‍🦳', '👩‍🦳', '👴', '👵', '🧕', '👳‍♂️', '👳‍♀️', '👲']],
+  ['Characters', ['🦸‍♂️', '🦸‍♀️', '🦹‍♂️', '🦹‍♀️', '🧙‍♂️', '🧙‍♀️', '🥷', '🕵️‍♂️', '🕵️‍♀️', '🤴', '👸', '🧛‍♂️', '🧛‍♀️', '🧞', '🤠', '👨‍🚀', '👩‍🚀', '🧑‍🚀']],
+  ['Animals', ['🦊', '🐼', '🦁', '🐯', '🐸', '🐵', '🦉', '🐙', '🦄', '🐺', '🐻', '🐧']],
+  ['Cards and fun', ['♠️', '♥️', '♦️', '♣️', '🃏', '🎲', '🎯', '👑', '💎', '🔥', '⚡', '🍀', '😎', '🤓', '😈', '🤡', '👻', '👽', '🤖', '💀', '🌟', '🚀', '🎩', '🏆']],
+]
+
+function EditProfile({ p }) {
+  const qc = useQueryClient(), [name, setName] = useState(p.display_name), [av, setAv] = useState(p.avatar || ''), [msg, setMsg] = useState(''), [busy, setBusy] = useState(false)
+  const save = async () => {
+    setBusy(true)
+    const { error } = await sb.rpc('update_my_profile', { p_name: name.trim(), p_avatar: av })
+    setBusy(false); setMsg(error ? error.message : 'Saved ✓')
+    if (!error) { qc.invalidateQueries(); setTimeout(() => location.reload(), 500) }
+  }
+  return <details className="card acc"><summary>Edit profile</summary>
+    <div className="pick">
+      <div className="avprev"><span className="av lg">{av || name.trim()[0] || '?'}</span>
+        <label className="fld grow"><span>Display name</span><input value={name} maxLength={30} onChange={e => setName(e.target.value)} /></label></div>
+      <div className="fld"><span>Profile picture</span>
+        <div className="avgrid"><button type="button" className={'avopt' + (av === '' ? ' on' : '')} onClick={() => setAv('')} aria-label="Use my initial">{name.trim()[0] || '?'}</button></div></div>
+      {AVATARS.map(([g, list]) => <div className="fld" key={g}><span>{g}</span>
+        <div className="avgrid">{list.map(e => <button type="button" key={e} className={'avopt' + (av === e ? ' on' : '')} onClick={() => setAv(e)}>{e}</button>)}</div></div>)}
+      <button className="pri" disabled={busy || !name.trim()} onClick={save}>Save profile</button>{msg && <span className={msg.includes('✓') ? 'pos' : 'err'}>{msg}</span>}</div></details>
+}
+
 export function Profile({ id, me }) {
   const qc = useQueryClient()
   const lb = useData(() => sb.from('lb_cache').select('*'), 'pl')
@@ -59,8 +85,7 @@ export function Profile({ id, me }) {
     <div className="card statrow">{[[Number(m.balance).toLocaleString(), 'Tokens'], [m.games_played, 'Games'], [m.wins, 'Wins'], [m.win_rate + '%', 'Win rate'], [m.events_attended, 'Nights']].map(([v, l]) => <div key={l}><b>{v}</b><span>{l}</span></div>)}</div>
     <p className="muted pad">Favourite games: {favs.map(f => `${f[0]} (${f[1]})`).join(', ') || 'none yet'}</p>
     {id !== me.id && <button className="ontable" onClick={async () => { await sb.rpc('set_rival', { p_id: id }); location.reload() }}>Make rival</button>}
-    {id === me.id && <F title="Edit my profile" fields={[['avatar', 'Avatar (one emoji)'], ['display_name', 'Display name']]}
-      onSubmit={async v => { const x = await sb.rpc('update_my_profile', { p_name: v.display_name, p_avatar: v.avatar }); if (!x.error) location.reload(); return x }} />}
+    {id === me.id && <EditProfile p={p} />}
     {id === me.id && ac.length > 0 && <div className="card"><label className="fld"><span>Your title, shown on your profile and the leaderboard</span>
       <select value={ac.find(x => x.achievements.name === p.title)?.achievement_id || (p.title ? '__cur' : '')} onChange={async e => { if (e.target.value === '__cur') return; await sb.rpc('set_title', { p_ach: e.target.value || null }); qc.invalidateQueries() }}>
         <option value="">No title</option>{p.title && !ac.some(x => x.achievements.name === p.title) && <option value="__cur">{p.title} (custom)</option>}{ac.map(x => <option key={x.achievement_id} value={x.achievement_id}>{x.achievements.name}</option>)}</select></label></div>}
