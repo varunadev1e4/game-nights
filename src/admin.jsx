@@ -89,6 +89,7 @@ function MemberRow({ x, role, owner, self }) {
   return <div className="card"><div className="tx tap" onClick={() => setOpen(!open)}><b>{x.avatar || ''} {x.display_name}</b>{role?.is_admin && <span className="pill upcoming">{role.is_owner ? 'Owner' : 'Admin'}</span>}<span>{fmt(x.balance)} ▾</span></div>
     {open && <><input type="number" placeholder="Amount" value={amt} onChange={e => setAmt(e.target.value)} /><input placeholder="Reason (optional)" value={why} onChange={e => setWhy(e.target.value)} />
       <div className="btns"><button className="pri" disabled={!amt} onClick={() => go(1)}>＋ Add</button><button disabled={!amt} onClick={() => go(-1)}>− Deduct</button></div>
+      <button onClick={async () => { await sb.from('profiles').update({ title: null, frame: null }).eq('id', x.member_id); qc.invalidateQueries() }}>Reset title and frame</button>
       {owner && !self && <><button onClick={async () => { const { error } = await sb.rpc('set_admin', { p_id: x.member_id, p_admin: !role?.is_admin }); if (error) alert(error.message); qc.invalidateQueries() }}>{role?.is_admin ? 'Remove admin rights' : 'Make admin'}</button>
         <p className="muted">Admins can run events, record results and edit tokens. They see the Admin tab after they refresh.</p></>}</>}</div>
 }
@@ -115,16 +116,32 @@ function GameRow({ g }) {
       <button className="pri" onClick={save}>Save HT rules</button></>}</div>
 }
 
+const KINDS = [['perk', 'Perk the host fulfils'], ['title', 'Custom player title'], ['announcement', 'Noticeboard post'], ['challenge', 'Player challenge'], ['frame', 'Profile frame'], ['mystery', 'Mystery box']]
+
+function ShopItems({ run }) {
+  const qc = useQueryClient()
+  const it = useData(() => sb.from('shop_items').select('*').order('cost'), 'sa')
+  if (!it) return null
+  const toggle = async x => { await sb.from('shop_items').update({ active: !x.active }).eq('id', x.id); qc.invalidateQueries() }
+  return <>
+    <F title="＋ Add shop item" fields={[['name', 'Item'], ['description', 'Description (optional)'], ['cost', 'Cost (HT)', 'number'], ['kind', 'Type', 0, KINDS], ['asks', 'Question for the buyer (optional)'],
+      ['stock', 'Stock, blank for unlimited (optional)', 'number'], ['black_market', 'Show in the Black Market?', 0, [['false', 'No'], ['true', 'Yes, limited time']]], ['ends_at', 'Ends at (optional)', 'datetime-local']]}
+      onSubmit={run(v => sb.from('shop_items').insert({ ...clean(v), cost: +v.cost, stock: v.stock ? +v.stock : null, black_market: v.black_market === 'true', ends_at: v.ends_at ? new Date(v.ends_at).toISOString() : null }))} />
+    <div className="card list">{it.map(x => <div className="li" key={x.id}><span className="grow"><span className="nm">{x.name}</span>
+      <span className="muted">{x.cost} HT{x.black_market ? ', Black Market' : ''}{x.stock != null ? `, ${x.stock} left` : ''}{x.ends_at ? `, ends ${new Date(x.ends_at).toLocaleDateString()}` : ''}</span></span>
+      <button onClick={() => toggle(x)}>{x.active ? 'Hide' : 'Show'}</button></div>)}</div></>
+}
+
 function GamesAdmin({ g, run }) {
   const qc = useQueryClient()
-  const pur = useData(() => sb.from('purchases').select('id,profiles(display_name),shop_items(name)').eq('fulfilled', false), 'pu')
+  const pur = useData(() => sb.from('purchases').select('id,note,profiles(display_name),shop_items(name)').eq('fulfilled', false), 'pu')
   if (!pur) return <div className="sk" />
   return <>
     <F title="＋ Add game" fields={[['name', 'Name'], ['description', 'Short description'], ['min_players', 'Min players', 'number'], ['max_players', 'Max players', 'number'], ['duration_min', 'Minutes', 'number']]} onSubmit={run(v => sb.from('games').insert(v))} />
     {g.map(x => <GameRow key={x.id} g={x} />)}
     <h3 style={{ margin: '16px 0 8px' }}>Shop</h3>
-    <F title="＋ Add shop item" fields={[['name', 'Item'], ['description', 'Description'], ['cost', 'Cost (HT)', 'number']]} onSubmit={run(v => sb.from('shop_items').insert(v))} />
-    <div className="card"><h3>Pending orders</h3>{pur.map(p => <div className="tx row" key={p.id}><span>{p.profiles.display_name} · {p.shop_items.name}</span>
+    <ShopItems run={run} />
+    <div className="card"><h3>Pending orders</h3>{pur.map(p => <div className="tx row" key={p.id}><span>{p.profiles.display_name} bought {p.shop_items.name}{p.note && <><br /><span className="muted">{p.note}</span></>}</span>
       <button onClick={async () => { await sb.from('purchases').update({ fulfilled: true }).eq('id', p.id); qc.invalidateQueries() }}>Done</button></div>)}{!pur.length && <p className="muted">No pending orders</p>}</div></>
 }
 

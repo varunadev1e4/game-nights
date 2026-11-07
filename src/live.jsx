@@ -26,16 +26,66 @@ export function TableBets({ t }) {
       <input type="number" placeholder="HT" style={{ width: 80 }} value={stake} onChange={e => setStake(e.target.value)} /><button disabled={!pick || !stake} onClick={go}>Bet</button></div>{msg}</div>
 }
 
-export function Shop() {
+const FRAMES = [['gold', 'Gold'], ['ruby', 'Ruby'], ['emerald', 'Emerald'], ['sapphire', 'Sapphire'], ['violet', 'Violet']]
+const timeLeft = d => { const h = Math.floor((new Date(d) - Date.now()) / 36e5); return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h left` : `${Math.max(h, 0)}h left` }
+
+function Item({ it, members, bal, done }) {
+  const [open, setOpen] = useState(false), [note, setNote] = useState(''), [target, setTarget] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState('')
+  const ask = it.kind === 'frame' ? 'frame' : it.kind === 'challenge' ? 'challenge' : (it.asks || ['title', 'announcement'].includes(it.kind)) ? 'text' : null
+  const short = bal < it.cost, out = it.stock != null && it.stock <= 0
+  const buy = async () => {
+    setBusy(true); setErr('')
+    const { data, error } = await sb.rpc('buy_item', { p_item: it.id, p_note: note || null, p_target: target || null })
+    setBusy(false)
+    if (error) return setErr(error.message)
+    setOpen(false); setNote(''); setTarget(''); done(data)
+  }
+  return <div className="li shopi"><div className="tx"><span className="grow"><span className="nm">{it.name}</span>
+    <span className="muted">{it.description}{it.stock != null ? (out ? ' Sold out.' : ` Only ${it.stock} left.`) : ''}{it.ends_at ? ` ${timeLeft(it.ends_at)}.` : ''}</span></span>
+    <button disabled={out} onClick={() => setOpen(!open)}>{it.cost} HT</button></div>
+    {open && <div className="buy">
+      {ask === 'frame' && <select value={note} onChange={e => setNote(e.target.value)}><option value="">Choose a frame</option>{FRAMES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>}
+      {ask === 'challenge' && <select value={target} onChange={e => setTarget(e.target.value)}><option value="">Who are you challenging?</option>{members.map(m => <option key={m.id} value={m.id}>{m.display_name}</option>)}</select>}
+      {(ask === 'text' || ask === 'challenge') && <input maxLength={140} placeholder={it.asks || 'Write it here'} value={note} onChange={e => setNote(e.target.value)} />}
+      {short && <p className="muted">You need {it.cost - bal} more HT.</p>}
+      <button className="pri" disabled={busy || short} onClick={buy}>{busy ? 'Buying…' : `Buy for ${it.cost} HT`}</button>{err && <p className="err">{err}</p>}</div>}</div>
+}
+
+export function Shop({ me }) {
   const qc = useQueryClient(), [msg, setMsg] = useState('')
+  const w = useData(() => sb.from('wallet').select('balance').eq('member_id', me.id), 'sw')
   const items = useData(() => sb.from('shop_items').select('*').eq('active', true).order('cost'), 'si')
+  const members = useData(() => sb.from('profiles').select('id,display_name').order('display_name'), 'sm')
+  const odds = useData(() => sb.from('mystery_rewards').select('label,weight').order('weight', { ascending: false }), 'so')
   const games = useData(() => sb.from('games').select('id,name'), 'vg')
   const votes = useData(() => sb.from('game_votes').select('game_id'), 'gv')
-  if (!items || !games || !votes) return <div className="sk" />
-  const call = async (fn, args) => { const { error } = await sb.rpc(fn, args); setMsg(error ? error.message : 'Done ✓'); qc.invalidateQueries() }
-  return <>{msg && <p className="note">{msg}</p>}
-    <div className="card"><h3>Token shop</h3>{items.map(x => <div className="tx row" key={x.id}><span>{x.name}<br /><small className="muted">{x.description}</small></span><button onClick={() => call('buy_item', { p_item: x.id })}>{x.cost} HT</button></div>)}{!items.length && <p className="muted">Nothing for sale yet</p>}</div>
-    <div className="card"><h3>Vote for the next game</h3>{games.map(g => <div className="tx row" key={g.id}><span>{g.name} · {votes.filter(v => v.game_id === g.id).length}</span><button onClick={() => call('vote_game', { p_game: g.id })}>Vote</button></div>)}</div></>
+  if (!w || !items || !members || !odds || !games || !votes) return <div className="sk" />
+  const now = Date.now(), live = items.filter(x => (!x.starts_at || new Date(x.starts_at) <= now) && (!x.ends_at || new Date(x.ends_at) > now))
+  const main = live.filter(x => !x.black_market), bm = live.filter(x => x.black_market), bal = Number(w[0]?.balance ?? 0), tot = odds.reduce((a, x) => a + x.weight, 0)
+  const done = m => { setMsg(m); qc.invalidateQueries() }
+  return <>
+    <div className="card wal"><span className="coin">HT</span><div className="grow"><div className="num">{bal.toLocaleString()}</div><span className="muted">House Tokens to spend</span></div></div>
+    {msg && <p className="note">{msg}</p>}
+    <h3 className="sub">Club shop</h3>
+    <div className="card list">{main.map(it => <Item key={it.id} it={it} members={members} bal={bal} done={done} />)}{!main.length && <p className="muted">Nothing for sale yet. Check back soon.</p>}</div>
+    {bm.length > 0 && <><h3 className="sub">Black Market</h3><p className="muted pad">Rare items that vanish when the timer runs out.</p>
+      <div className="card list bm">{bm.map(it => <Item key={it.id} it={it} members={members} bal={bal} done={done} />)}</div></>}
+    {odds.length > 0 && <details className="card acc"><summary>Mystery box odds</summary>
+      {odds.map(x => <div className="tx" key={x.label}><span>{x.label}</span><b>{Math.round(100 * x.weight / tot)}%</b></div>)}
+      <p className="muted">Rewards are cosmetic or small refunds. Nothing here changes your leaderboard points.</p></details>}
+    <h3 className="sub">Vote for the next game</h3>
+    <div className="card list">{games.map(g => <div className="li" key={g.id}><span className="grow nm">{g.name}</span><span className="muted">{votes.filter(v => v.game_id === g.id).length} votes</span>
+      <button onClick={async () => { await sb.rpc('vote_game', { p_game: g.id }); qc.invalidateQueries() }}>Vote</button></div>)}</div></>
+}
+
+export function Noticeboard({ isAdmin }) {
+  const qc = useQueryClient()
+  const n = useData(() => sb.from('notices').select('id,kind,body,created_at,author:profiles!notices_author_id_fkey(display_name),target:profiles!notices_target_id_fkey(display_name)').order('created_at', { ascending: false }).limit(5), 'nb')
+  if (!n || !n.length) return null
+  return <><h3 className="sub">Noticeboard</h3><div className="card list">{n.map(x => <div className="li" key={x.id}><span className="grow">
+    {x.kind === 'challenge' ? <><span className="nm">{x.author.display_name} challenges {x.target?.display_name || 'the club'}</span><span className="muted">{x.body}</span></>
+      : <><span className="nm">“{x.body}”</span><span className="muted">{x.author.display_name}</span></>}</span>
+    {isAdmin && <button onClick={async () => { await sb.from('notices').delete().eq('id', x.id); qc.invalidateQueries() }}>Remove</button>}</div>)}</div></>
 }
 
 export function Rival({ me }) {

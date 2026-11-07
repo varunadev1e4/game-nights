@@ -2,7 +2,7 @@ import { useEffect, useState, lazy, Suspense } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from './supabase'
 import { Leaderboard, Members, Profile, Achievements } from './more'
-import { Shop, TV, Rsvp, TableBets, Rival } from './live'
+import { Shop, TV, Rsvp, TableBets, Rival, Noticeboard } from './live'
 import { NextUp, Recap, Gallery, Brackets } from './extra'
 const Admin = lazy(() => import('./admin'))
 
@@ -48,7 +48,7 @@ function Home({ me, go }) {
       : <div className="empty">No game night scheduled yet. The host will post the next one here.</div>}
     <div className="card wal" onClick={() => go('Wallet')}><span className="coin">HT</span>
       <div className="grow"><div className="num">{Number(b?.balance ?? 0).toLocaleString()}</div><span className="muted">House Tokens{rank ? `, ranked ${rank} this season` : ''}</span></div><span className="go">›</span></div>
-    <Rival me={me} /></>
+    <Noticeboard isAdmin={me.is_admin} /><Rival me={me} /></>
 }
 
 function Events() {
@@ -131,7 +131,7 @@ export default function App() {
   const go = t => { setTab(t); if (t === 'Profile') setPid(null); window.scrollTo(0, 0) }
   const nav = ['Home', 'Events', 'Leaderboard', me.is_admin ? 'Admin' : 'Wallet', 'More']
   const deep = !nav.includes(tab)
-  const page = { Home: <Home me={me} go={go} />, Events: <Events />, Games: <Games />, Members: <Members open={id => { setPid(id); setTab('Profile') }} />, Wallet: <Wallet me={me} />, Shop: <Shop />,
+  const page = { Home: <Home me={me} go={go} />, Events: <Events />, Games: <Games />, Members: <Members open={id => { setPid(id); setTab('Profile') }} />, Wallet: <Wallet me={me} />, Shop: <Shop me={me} />,
     Leaderboard: <Leaderboard />, Recap: <Recap />, Brackets: <Brackets />, Gallery: <Gallery me={me} />, Achievements: <Achievements />, Profile: <Profile id={pid || me.id} me={me} />,
     Admin: <Suspense fallback={<div className="sk" />}><Admin /></Suspense>,
     More: <><div className="card list">{MORE.filter(([t]) => !nav.includes(t)).map(([t, d]) => <button key={t} className="link" onClick={() => go(t)}><span className="grow"><b>{t}</b><small>{d}</small></span><i>›</i></button>)}</div>
