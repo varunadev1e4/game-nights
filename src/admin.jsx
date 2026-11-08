@@ -94,6 +94,23 @@ function MemberRow({ x, role, owner, self }) {
         <p className="muted">Admins can run events, record results and edit tokens. They see the Admin tab after they refresh.</p></>}</>}</div>
 }
 
+function JoinCard() {
+  const qc = useQueryClient(), [copied, setCopied] = useState(false)
+  const s = useData(() => sb.from('club_settings').select('key,value'), 'cs')
+  if (!s) return <div className="sk" />
+  const get = k => s.find(x => x.key === k)?.value, code = get('join_code'), open = get('join_open') === 'true'
+  const link = `${location.origin}/?join=${code}`
+  const set = async (k, v) => { await sb.from('club_settings').upsert({ key: k, value: v }); qc.invalidateQueries() }
+  return <div className="card"><h3>Invite friends</h3>
+    <p className="muted">Share this link in your group chat. Friends create their own account in under a minute.</p>
+    <input readOnly value={link} onFocus={e => e.target.select()} />
+    <div className="btns"><button className="pri" onClick={async () => { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>{copied ? 'Copied' : 'Copy link'}</button>
+      <a href={'https://wa.me/?text=' + encodeURIComponent(`Join our Secret Shuffle card club: ${link} (club code: ${code})`)} target="_blank" rel="noreferrer"><button>Share on WhatsApp</button></a></div>
+    <div className="tx row"><span>Club code: <b>{code}</b></span><button onClick={() => set('join_code', crypto.randomUUID().slice(0, 8))}>New code</button></div>
+    <div className="tx row"><span>{open ? 'Joining is open' : 'Joining is closed'}</span><button onClick={() => set('join_open', open ? 'false' : 'true')}>{open ? 'Close joining' : 'Open joining'}</button></div>
+    <p className="muted">A new code stops the old link from working. Existing members keep their accounts.</p></div>
+}
+
 function MembersAdmin({ m, M, run }) {
   const qc = useQueryClient()
   const ac = useData(() => sb.from('achievements').select('id,name'), 'aa')
@@ -101,7 +118,8 @@ function MembersAdmin({ m, M, run }) {
   const uid = useData(() => sb.auth.getUser().then(r => ({ data: r.data.user.id })), 'uid')
   if (!ac || !roles || !uid) return <div className="sk" />
   return <>
-    <F title="＋ Invite member" fields={[['display_name', 'Name'], ['email', 'Email', 'email'], ['password', 'Temporary password', 'password']]}
+    <JoinCard />
+    <F title="＋ Add a member yourself" fields={[['display_name', 'Name'], ['email', 'Email', 'email'], ['password', 'Temporary password', 'password']]}
       onSubmit={async v => { const { data } = await sb.auth.getSession(); const r = await fetch('/api/invite', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + data.session.access_token }, body: JSON.stringify(v) }); let j = {}; try { j = await r.json() } catch { /* empty body */ } qc.invalidateQueries(); return { error: r.ok ? null : { message: j.error || `Invite failed (${r.status}). Check SUPABASE_SERVICE_ROLE_KEY in .env, then restart the dev server.` } } }} />
     <F title="Award achievement" fields={[['member_id', 'Member', 0, M], ['achievement_id', 'Achievement', 0, ac.map(a => [a.id, a.name])]]} onSubmit={run(v => sb.from('member_achievements').insert(v))} />
     <p className="muted" style={{ margin: '4px 0 8px' }}>Tap a member to add or deduct tokens</p>{m.map(x => <MemberRow key={x.member_id} x={x} role={roles.find(r => r.id === x.member_id)} owner={roles.find(r => r.id === uid)?.is_owner} self={x.member_id === uid} />)}</>

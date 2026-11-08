@@ -77,3 +77,4 @@ details.acc .pick{display:flex;flex-direction:column;gap:12px;margin-top:12px}
 .avopt{min-height:48px;padding:0;font-size:24px;border-radius:12px;border:1.5px solid var(--rule);background:#fff;color:var(--ink)}
 .avopt.on{background:#fff;color:var(--ink);border-color:var(--heart);box-shadow:0 0 0 2px var(--heart)}
 .avprev{display:flex;align-items:center;gap:12px}
+.textbtn{border:0;background:none;color:var(--heart);min-height:36px;padding:0;align-self:flex-start}

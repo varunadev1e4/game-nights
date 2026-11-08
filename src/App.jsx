@@ -12,14 +12,29 @@ export function useData(fn, key) {
 }
 
 function Login() {
-  const [f, setF] = useState({ email: '', password: '' }), [err, setErr] = useState(''), [busy, setBusy] = useState(false)
-  const go = async e => { e.preventDefault(); setBusy(true); const { error } = await sb.auth.signInWithPassword(f); setBusy(false); if (error) setErr('Wrong email or password. Check them and try again.') }
-  return <div className="gate"><div className="mark"><span className="suits">♠ <span className="r">♥</span> ♣ <span className="r">♦</span></span><h1>Secret Shuffle</h1><p>A private card club. Sign in to see tonight's tables and your tokens.</p></div>
+  const code0 = new URLSearchParams(location.search).get('join') || ''
+  const [mode, setMode] = useState(code0 ? 'join' : 'in'), [f, setF] = useState({ name: '', email: '', password: '', code: code0 }), [err, setErr] = useState(''), [busy, setBusy] = useState(false)
+  const set = k => e => setF({ ...f, [k]: e.target.value }), join = mode === 'join'
+  const go = async e => {
+    e.preventDefault(); setBusy(true); setErr('')
+    if (join) {
+      const r = await fetch('/api/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
+      let j = {}; try { j = await r.json() } catch { /* empty body */ }
+      if (!r.ok) { setBusy(false); return setErr(j.error || `Could not create the account (${r.status}).`) }
+    }
+    const { error } = await sb.auth.signInWithPassword({ email: f.email.trim(), password: f.password })
+    setBusy(false)
+    if (error) setErr(join ? 'Your account is ready, but signing in failed. Switch to Sign in and try again.' : 'Wrong email or password. Check them and try again.')
+  }
+  return <div className="gate"><div className="mark"><span className="suits">♠ <span className="r">♥</span> ♣ <span className="r">♦</span></span><h1>Secret Shuffle</h1>
+    <p>{join ? 'Create your account with the club code your host shared.' : "A private card club. Sign in to see tonight's tables and your tokens."}</p></div>
     <form className="card" onSubmit={go}>
-      <label className="fld"><span>Email</span><input type="email" autoComplete="email" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} /></label>
-      <label className="fld"><span>Password</span><input type="password" autoComplete="current-password" value={f.password} onChange={e => setF({ ...f, password: e.target.value })} /></label>
-      <button className="pri" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>{err && <p className="err">{err}</p>}
-      <p className="muted">No account yet? Ask the host to add you.</p></form></div>
+      {join && <label className="fld"><span>Your name</span><input autoComplete="name" value={f.name} onChange={set('name')} /></label>}
+      <label className="fld"><span>Email</span><input type="email" autoComplete="email" value={f.email} onChange={set('email')} /></label>
+      <label className="fld"><span>{join ? 'Choose a password (8 or more characters)' : 'Password'}</span><input type="password" autoComplete={join ? 'new-password' : 'current-password'} value={f.password} onChange={set('password')} /></label>
+      {join && <label className="fld"><span>Club code</span><input autoCapitalize="none" value={f.code} onChange={set('code')} /></label>}
+      <button className="pri" disabled={busy}>{busy ? 'One moment…' : join ? 'Join the club' : 'Sign in'}</button>{err && <p className="err">{err}</p>}
+      <button type="button" className="textbtn" onClick={() => { setMode(join ? 'in' : 'join'); setErr('') }}>{join ? 'Already a member? Sign in' : 'New here? Join with a club code'}</button></form></div>
 }
 
 const hm = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
