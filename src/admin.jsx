@@ -184,7 +184,7 @@ function DataAdmin({ M }) {
   return <><div className="card"><h3>Export</h3><div className="btns"><button onClick={async () => dl('transactions', (await sb.from('transactions').select('*')).data)}>Transactions CSV</button>
     <button onClick={async () => dl('results', (await sb.from('results').select('*')).data)}>Results CSV</button></div></div>
     <div className="card"><h3>Recent changes</h3>{log.map(a => <div className="tx row" key={a.id}><span className="muted">{a.op === 'INSERT' ? '' : ''} {a.tbl} · {name(a.detail.member_id)} · {a.detail.amount ?? '#' + a.detail.position}</span>
-      {a.op === 'INSERT' && (a.tbl === 'results' || !a.detail.result_id) && <button onClick={() => undo(a)}>Undo</button>}</div>)}</div></>
+      {a.op === 'INSERT' && (a.tbl === 'results' || (!a.detail.result_id && !a.detail.house_tx)) && <button onClick={() => undo(a)}>Undo</button>}</div>)}</div></>
 }
 
 export default function Admin() {
