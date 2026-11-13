@@ -5,7 +5,6 @@ import { Leaderboard, Members, Profile, Achievements } from './more'
 import { Shop, TV, Rsvp, TableBets, Rival, Noticeboard } from './live'
 import { NextUp, Recap, Gallery, Brackets } from './extra'
 const Admin = lazy(() => import('./admin'))
-const House = lazy(() => import('./house'))
 
 export const fmt = n => Number(n).toLocaleString() + ' HT'
 export function useData(fn, key) {
@@ -128,9 +127,6 @@ const MORE = [['Games', 'Rules, player counts and how long each takes'], ['Membe
 export default function App() {
   const [session, setSession] = useState(undefined), [me, setMe] = useState(null), [tab, setTab] = useState('Home'), [pid, setPid] = useState(null)
   const qc = useQueryClient()
-  const [hash, setHash] = useState(location.hash)
-  useEffect(() => { const f = () => setHash(location.hash); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f) }, [])
-  const hr = useQuery({ queryKey: ['house-role'], queryFn: async () => (await sb.rpc('house_role')).data || '', enabled: !!session }).data
   useEffect(() => {
     sb.auth.getSession().then(r => setSession(r.data.session))
     const { data } = sb.auth.onAuthStateChange((_, s) => setSession(s))
@@ -144,17 +140,16 @@ export default function App() {
     ch.subscribe()
     return () => { sb.removeChannel(ch) }
   }, [session])
-  if (hash.startsWith('#house')) return <Suspense fallback={<div className="splash">♠</div>}><House hash={hash} session={session} /></Suspense>
   if (session === undefined || (session && !me)) return <div className="splash">♠</div>
   if (!session) return <Login />
-  if (hash === '#tv') return <TV />
-  const go = t => { if (t === 'The House') { location.hash = '#house'; return } setTab(t); if (t === 'Profile') setPid(null); window.scrollTo(0, 0) }
+  if (location.hash === '#tv') return <TV />
+  const go = t => { setTab(t); if (t === 'Profile') setPid(null); window.scrollTo(0, 0) }
   const nav = ['Home', 'Events', 'Leaderboard', me.is_admin ? 'Admin' : 'Wallet', 'More']
   const deep = !nav.includes(tab)
   const page = { Home: <Home me={me} go={go} />, Events: <Events />, Games: <Games />, Members: <Members open={id => { setPid(id); setTab('Profile') }} />, Wallet: <Wallet me={me} />, Shop: <Shop me={me} />,
     Leaderboard: <Leaderboard />, Recap: <Recap />, Brackets: <Brackets />, Gallery: <Gallery me={me} />, Achievements: <Achievements />, Profile: <Profile id={pid || me.id} me={me} />,
     Admin: <Suspense fallback={<div className="sk" />}><Admin /></Suspense>,
-    More: <><div className="card list">{[...MORE, ...(hr ? [['The House', 'Casino night: bank, bets, leaderboard and TV']] : [])].filter(([t]) => !nav.includes(t)).map(([t, d]) => <button key={t} className="link" onClick={() => go(t)}><span className="grow"><b>{t}</b><small>{d}</small></span><i>›</i></button>)}</div>
+    More: <><div className="card list">{MORE.filter(([t]) => !nav.includes(t)).map(([t, d]) => <button key={t} className="link" onClick={() => go(t)}><span className="grow"><b>{t}</b><small>{d}</small></span><i>›</i></button>)}</div>
       <button className="ontable" onClick={() => sb.auth.signOut()}>Sign out</button></> }[tab]
   return <div className="app">
     <header><span className="wm"><i>♠</i>Secret Shuffle</span><button className="av" style={{ border: 0, padding: 0 }} onClick={() => go('Profile')} aria-label="Your profile">{me.avatar || me.display_name[0]}</button></header>
