@@ -4,10 +4,11 @@ import { sb } from './supabase'
 import { useData, F, fmt } from './App'
 import { Seating, Tournaments } from './adminy'
 import { Scorekeeper, QuickResults, dl } from './adminx'
+import { AfterEvent } from './afterevent'
 
 const hm = d => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 const clean = v => Object.fromEntries(Object.entries(v).filter(([, x]) => x))
-const SECS = ['Run event', 'Events', 'Members', 'Games', 'Seasons', 'Data']
+const SECS = ['Run event', 'After event', 'Events', 'Members', 'Games', 'Seasons', 'Data']
 
 function TableCard({ t, M }) {
   const qc = useQueryClient(), [open, setOpen] = useState(''), [w, setW] = useState('')
@@ -195,7 +196,7 @@ export default function Admin() {
   if (!ev || !m || !g) return <div className="sk" />
   const run = fn => async v => { const r = await fn(v); qc.invalidateQueries(); return r }
   const E = ev.map(x => [x.id, x.name]), M = m.map(x => [x.member_id, x.display_name]), G = g.map(x => [x.id, x.name])
-  const body = { 'Run event': <RunEvent ev={ev} G={G} M={M} run={run} />, Events: <EventsAdmin ev={ev} run={run} />, Members: <MembersAdmin m={m} M={M} run={run} />,
+  const body = { 'Run event': <RunEvent ev={ev} G={G} M={M} run={run} />, 'After event': <AfterEvent ev={ev} M={M} G={G} />, Events: <EventsAdmin ev={ev} run={run} />, Members: <MembersAdmin m={m} M={M} run={run} />,
     Games: <GamesAdmin g={g} run={run} />, Seasons: <SeasonsAdmin E={E} M={M} run={run} />, Data: <DataAdmin M={M} /> }[sec]
   return <><div className="seg">{SECS.map(s => <button key={s} className={sec === s ? 'on' : ''} onClick={() => setSec(s)}>{s}</button>)}</div>{body}</>
 }
